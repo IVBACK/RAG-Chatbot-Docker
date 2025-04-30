@@ -1,0 +1,3 @@
+SampleCorp offers end-to-end security solutions designed to protect IT infrastructures against evolving cyber threats. 
+Our services include firewall management, intrusion prevention systems, endpoint protection, vulnerability assessments, and security compliance consulting. 
+We ensure that businesses are safeguarded with proactive threat detection, real-time monitoring, and rapid incident response capabilities.

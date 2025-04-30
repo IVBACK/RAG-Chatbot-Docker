@@ -1,0 +1,28 @@
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: docker/ollama.Dockerfile
+      args:
+        # Use 'rocm' tag for AMD
+        OLLAMA_BASE_TAG: ${OLLAMA_IMAGE_TAG:-rocm}
+    container_name: ollama
+    environment:
+      OLLAMA_DEBUG: ${OLLAMA_DEBUG:-0}
+      # Read AMD specific GFX override from .env
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-}
+    ports:
+      - "${OLLAMA_PORT_HOST:-11434}:11434"
+    volumes:
+      - ${OLLAMA_PATH}:/root/.ollama
+    # Add devices needed for ROCm
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:11434/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

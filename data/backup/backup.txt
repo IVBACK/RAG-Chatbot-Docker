@@ -1,0 +1,3 @@
+SampleCorp’s backup solutions guarantee the protection and recoverability of critical business data. 
+We offer automated, encrypted, and geographically redundant backup services tailored to meet compliance and operational needs. 
+Whether it's on-premises, cloud, or hybrid environments, SampleCorp ensures business continuity with reliable backup and disaster recovery plans.

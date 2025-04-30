@@ -1,0 +1,32 @@
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: docker/ollama.Dockerfile
+      args:
+        # Use 'latest' tag for NVIDIA (usually includes CUDA)
+        OLLAMA_BASE_TAG: ${OLLAMA_IMAGE_TAG:-latest}
+    container_name: ollama
+    environment:
+      OLLAMA_DEBUG: ${OLLAMA_DEBUG:-0}
+      # HSA_OVERRIDE_GFX_VERSION is ignored for NVIDIA
+      HSA_OVERRIDE_GFX_VERSION: ${HSA_OVERRIDE_GFX_VERSION:-}
+    ports:
+      - "${OLLAMA_PORT_HOST:-11434}:11434"
+    volumes:
+      - ${OLLAMA_PATH}:/root/.ollama
+    # Add deploy section needed for NVIDIA Container Toolkit
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1 # or "all"
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:11434/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

@@ -1,0 +1,107 @@
+services:
+  # PostgreSQL Database Service with pgvector extension
+  rag-db:
+    image: pgvector/pgvector:pg16
+    container_name: rag-db
+    environment:
+      POSTGRES_DB: ${DB_NAME}             # Database name from .env
+      POSTGRES_USER: ${DB_USER}           # Username from .env
+      POSTGRES_PASSWORD: ${DB_PASSWORD}   # Password from .env
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # Persistent volume for DB data
+      - ./init_database.sql:/docker-entrypoint-initdb.d/init.sql # Initial DB schema script
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U ${DB_USER:-postgres} -d ${DB_NAME:-rag}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Main RAG Flask Application Service
+  rag-app:
+    build:
+      context: . # Build context is the project root
+      dockerfile: docker/app.Dockerfile # Path to the application Dockerfile
+    container_name: rag-app
+    environment:
+      DB_HOST: rag-db                     # Use the service name for DB connection
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DATA_DIR: /app/data                 # Data path inside the container
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-mpnet-base-v2}
+      CLASSIFIER_MODEL: ${CLASSIFIER_MODEL:-facebook/bart-large-mnli}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_HOST: http://ollama:11434      # Address of the Ollama service container
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      STOPWORDS_LNG: ${STOPWORDS_LNG:-english}
+      NLTK_DATA: /app/nltk_data
+      FLASK_ENV: ${FLASK_ENV:-production}
+    depends_on:
+      rag-db:
+        condition: service_healthy
+      load-data:
+        condition: service_completed_successfully
+      ollama: # depends_on ollama still needed here
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+      - hf_cache:/root/.cache/huggingface
+      - nltk_data:/app/nltk_data
+    healthcheck:
+        test: ["CMD-SHELL", "curl --fail --silent http://localhost:5000/health || exit 1"]
+        interval: 20s
+        timeout: 10s
+        retries: 6
+        start_period: 600s
+    restart: unless-stopped
+
+  # Data Loading Service (runs once)
+  load-data:
+    build:
+      context: . # Build context is the project root
+      dockerfile: docker/load.Dockerfile # Path to the data loading Dockerfile
+    container_name: load-data
+    environment:
+      DB_HOST: rag-db
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DATA_DIR: /app/data
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-all-mpnet-base-v2}
+    depends_on:
+      rag-db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data:ro
+      - hf_cache:/root/.cache/huggingface
+      # - nltk_data:/app/nltk_data # Commented out as decided
+    restart: "no"
+
+  # Nginx Web Server / Reverse Proxy
+  nginx:
+    image: nginx:stable-alpine
+    container_name: nginx-proxy
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      # Mount Nginx configuration (choose based on environment)
+      - ./deployment/sitetest.conf:/etc/nginx/conf.d/default.conf:ro # For local testing
+      # - ./deployment/yourdomain.com.conf:/etc/nginx/conf.d/default.conf:ro # For production
+      # - /etc/letsencrypt:/etc/letsencrypt:ro # For production SSL
+      # Mount static files directory
+      - ./static:/var/www/static:ro
+    depends_on:
+      rag-app: # depends_on ollama not needed here as rag-app depends on it
+        condition: service_healthy
+    restart: always
+
+# Define named volumes for persistent data and shared caches
+volumes:
+  pgdata:
+    driver: local
+  hf_cache:
+    driver: local
+  nltk_data:
+    driver: local

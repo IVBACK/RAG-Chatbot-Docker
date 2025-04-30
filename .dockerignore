@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+venv/
+.env
+
+# Models and large data
+ollama-models/
+data/
+
+# IDE / editor
+*.log
+*.sqlite3
+.DS_Store
+.idea/
+.vscode/
