@@ -16,7 +16,7 @@ This project implements a Retrieval-Augmented Generation (RAG) chatbot using Doc
 
 **Optional / Conditional Requirements:**
 
-* **For NVIDIA GPU Acceleration:**
+* **For NVIDIA GPU Acceleration:** [UNTESTED]
     * NVIDIA GPU Drivers for your specific GPU and OS.
     * NVIDIA Container Toolkit (`nvidia-docker2`).
 * **For AMD GPU Acceleration:**
@@ -110,7 +110,7 @@ This project supports CPU, NVIDIA (CUDA) GPUs, and AMD (ROCm) GPUs.
 1. **Host Prerequisites**:
    - **NVIDIA**: Install NVIDIA drivers and NVIDIA Container Toolkit.
    - **AMD**: Install AMD drivers and ROCm Toolkit.
-   - **CPU**: No special requirements.
+   - **CPU**: No special requirements. [DEFAULT]
 
 2. **Environment Variables**:
    Edit your `.env` file as needed:

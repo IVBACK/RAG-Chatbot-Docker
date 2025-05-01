@@ -2,6 +2,8 @@
 __pycache__/
 *.pyc
 
+.make-state
+
 # Python virtual environments
 env/
 
