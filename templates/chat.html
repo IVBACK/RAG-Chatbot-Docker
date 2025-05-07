@@ -1,25 +1,164 @@
 <!DOCTYPE html>
-<html lang="en"> <head>
+<html lang="en">
+<head>
   <meta charset="UTF-8">
-  <title>AI Chat</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAG Chatbot</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <script src="/static/purify.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <link rel="stylesheet" href="/static/style.css">
+  <!-- highlight.js CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;700&family=Noto+Sans+SC&family=Noto+Sans+Arabic&family=Noto+Sans+Devanagari&family=Noto+Sans+Cyrillic&display=swap" rel="stylesheet">
 </head>
-<body>
-  <div class="chat-container">
-    <div class="chat-header">
-      Chat Assistant <div class="header-buttons">
-        <button onclick="toggleTheme()">Toggle Mode</button>
-        <button onclick="clearHistory()">Clear History</button>
+<body class="dark-mode">
+  <div class="app-container">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h1>RAG Chatbot</h1>
+      </div>
+      <div class="sidebar-content">
+        <button class="new-chat-btn" onclick="startNewChat()">
+          <i class="fas fa-plus"></i> New Chat
+        </button>
+        <div class="chat-list" id="chatList">
+          <!-- Chat items will be added here dynamically -->
+        </div>
+        <div class="sidebar-buttons">
+          <button id="settingsBtn">
+            <i class="fas fa-cog"></i> Settings
+          </button>
+        </div>
       </div>
     </div>
-    <div class="chat-box" id="chat"></div>
-    <div class="chat-input-area">
-      <input type="text" id="message" placeholder="Say Something...">
-      <button id="sendBtn" onclick="sendMessage()">Send</button>
+
+    <!-- Main Chat Area -->
+    <div class="main-content">
+      <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <p>Loading chat...</p>
+      </div>
+      <div class="chat-container">
+        <div class="chat-header">
+          <div class="search-wrapper">
+            <button id="searchToggleBtn" class="search-toggle-btn">
+              <i class="fas fa-search"></i>
+            </button>
+            <div class="search-container" style="display: none;">
+              <input type="text" id="chatSearchInput" placeholder="Search in chat...">
+              <button id="clearChatSearchBtn"><i class="fas fa-times"></i></button>
+            </div>
+          </div>
+        </div>
+        <div class="chat-box" id="chat"></div>
+        <div class="chat-input-area">
+          <div class="input-wrapper">
+            <textarea id="message" placeholder="Type your message here..." rows="1"></textarea>
+            <button id="sendBtn" onclick="sendMessage()">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
+
+  <!-- Context Menu for Chat Items -->
+  <div class="context-menu" id="contextMenu">
+    <div class="context-menu-item" onclick="renameChat()" data-translate="rename">
+      <i class="fas fa-edit"></i> Rename
+    </div>
+    <div class="context-menu-item" onclick="deleteChat()" data-translate="delete">
+      <i class="fas fa-trash"></i> Delete
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-content">
+      <span class="close-button" id="closeSettingsModal">&times;</span>
+      <h2 data-translate="settings">Settings</h2>
+      
+      <!-- Message Display Settings -->
+      <div class="settings-section">
+        <h3 data-translate="messageDisplay">Message Display</h3>
+        <div class="setting-item">
+          <label for="language" data-translate="interfaceLanguage">Interface Language</label>
+          <select id="language" class="settings-select">
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+            <option value="hi">हिन्दी</option>
+            <option value="es">Español</option>
+            <option value="ar">العربية</option>
+            <option value="tr">Türkçe</option>
+            <option value="de">Deutsch</option>
+            <option value="fr">Français</option>
+            <option value="ru">Русский</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label for="timestampFormat" data-translate="timeFormat">Time Format</label>
+          <select id="timestampFormat" class="settings-select">
+            <option value="12hour" data-translate="timeFormat12">12:00 PM</option>
+            <option value="24hour" data-translate="timeFormat24">13:00</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Interface Settings -->
+      <div class="settings-section">
+        <h3 data-translate="interfaceSettings">Interface Settings</h3>
+        <div class="setting-item">
+          <label for="fontSize" data-translate="fontSize">Font Size</label>
+          <select id="fontSize" class="settings-select">
+            <option value="tiny" data-translate="tiny">Tiny</option>
+            <option value="extraSmall" data-translate="extraSmall">Extra Small</option>
+            <option value="small" data-translate="small">Small</option>
+            <option value="medium" data-translate="medium">Medium</option>
+            <option value="large" data-translate="large">Large</option>
+            <option value="extraLarge" data-translate="extraLarge">Extra Large</option>
+            <option value="huge" data-translate="huge">Huge</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <label for="messageSpacing" data-translate="messageSpacing">Message Spacing</label>
+          <select id="messageSpacing" class="settings-select">
+            <option value="extraCompact" data-translate="extraCompact">Extra Compact</option>
+            <option value="compact" data-translate="compact">Compact</option>
+            <option value="normal" data-translate="normal">Normal</option>
+            <option value="relaxed" data-translate="relaxed">Relaxed</option>
+            <option value="spacious" data-translate="spacious">Spacious</option>
+            <option value="extraSpacious" data-translate="extraSpacious">Extra Spacious</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Storage Settings -->
+      <div class="settings-section">
+        <h3 data-translate="storageSettings">Storage Settings</h3>
+        <div class="setting-item">
+          <label for="maxMessages" data-translate="maxMessages">Maximum Messages in History</label>
+          <select id="maxMessages" class="settings-select">
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+        <div class="setting-item">
+          <button id="clearHistory" class="danger-button" data-translate="clearAllChats">
+            Clear All Chats
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- highlight.js JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="/static/chat.js"></script>
 </body>
 </html>
