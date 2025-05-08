@@ -20,6 +20,8 @@ let currentController = null;
 let currentChatId = null;
 let selectedChatItemForContextMenu = null;
 
+let currentActiveSettings = {}; // Global variable to hold current settings
+
 // Load history and set theme when the page loads
 window.onload = () => {
   // Force dark mode
@@ -39,7 +41,7 @@ window.onload = () => {
   setupEnhancedSearch();
 
   // Setup settings modal listeners
-  setupSettingsModal();
+  setupSettingsModal(); // This will set up listeners that use currentActiveSettings
 };
 
 // Loading Indicator Functions
@@ -70,11 +72,16 @@ async function startNewChat() {
       currentController = null;
     }
 
+    // Save current chat state before creating new one
+    if (currentChatId) {
+      await saveChatState(currentChatId);
+    }
+
     const chatId = generateChatId();
     const chatData = {
       id: chatId,
       title: 'New Chat',
-      messages: [],
+      messages: [], // New chat starts with empty messages
       createdAt: new Date().toISOString()
     };
 
@@ -83,11 +90,11 @@ async function startNewChat() {
     localStorage.setItem("chats", JSON.stringify(chats));
 
     addChatToList(chatData);
-    await switchToChat(chatId, false); // Pass false to prevent nested loading indicators
+    
+    await switchToChat(chatId, false);
 
   } catch (error) {
     console.error('Error creating new chat:', error);
-    // Optionally, show an error message to the user here
   } finally {
     hideLoadingIndicator();
   }
@@ -103,12 +110,8 @@ function addChatToList(chatData) {
     <span class="chat-title">${escapeHtml(chatData.title)}</span>
   `;
 
-  // Add click handler for switching chats
   chatItem.addEventListener("click", () => switchToChat(chatData.id));
-
-  // Add context menu handler
   chatItem.addEventListener("contextmenu", (e) => showContextMenu(e, chatData.id));
-
   chatList.insertBefore(chatItem, chatList.firstChild);
 }
 
@@ -116,11 +119,9 @@ function addChatToList(chatData) {
 async function switchToChat(chatId, showIndicator = true) {
   console.log(`Attempting to switch to chat: ${chatId}, current: ${currentChatId}, showIndicator: ${showIndicator}`);
 
-  // If already on the target chat AND this call is NOT from startNewChat (indicated by showIndicator = true)
-  // then there's no need to do anything.
   if (currentChatId === chatId && showIndicator) {
     console.log('Already on the target chat, no action needed.');
-    return;
+    return; 
   }
 
   if (showIndicator) {
@@ -128,38 +129,17 @@ async function switchToChat(chatId, showIndicator = true) {
   }
 
   try {
-    // Special handling for startNewChat: if we are switching to the chat that was just created.
-    if (currentChatId === chatId && !showIndicator) { 
-        console.log('Switching to a newly created chat.');
-        chat.innerHTML = ''; 
-        input.value = "";
-        input.style.height = 'auto';
-        input.focus();
-        const items = document.querySelectorAll('.chat-item');
-        items.forEach(item => {
-            item.classList.toggle('selected', item.dataset.chatId === chatId);
-        });
-        scrollToBottom();
-        return; 
-    }
-
-    // Standard chat switch (user clicks a different chat in the list)
-    console.log(`Proceeding with switch from ${currentChatId} to ${chatId}`);
     if (currentChatId) {
-      saveChatState(currentChatId);
+      const currentChatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+      const chats = JSON.parse(localStorage.getItem("chats") || "{}");
+      if (chats[currentChatId]) {
+        chats[currentChatId].messages = currentChatHistory;
+        localStorage.setItem("chats", JSON.stringify(chats));
+      }
     }
-    
-    // Clear search state when switching chats
-    if (chatSearchInput) {
-        chatSearchInput.value = ''; // Clear the search input field
-    }
-    if (clearChatSearchBtn) { // Hide the clear button for the search input
-        clearChatSearchBtn.style.display = 'none';
-    }
-    clearChatHighlights(); // Clear any visual highlights from messages
-    
-    chat.innerHTML = ''; 
 
+    chat.innerHTML = '';
+    localStorage.setItem("chatHistory", "[]");
     currentChatId = chatId;
 
     const chatItems = document.querySelectorAll('.chat-item');
@@ -167,10 +147,24 @@ async function switchToChat(chatId, showIndicator = true) {
       item.classList.toggle('selected', item.dataset.chatId === currentChatId);
     });
 
-    await loadChatState(currentChatId); 
+    if (chatSearchInput) chatSearchInput.value = '';
+    if (clearChatSearchBtn) clearChatSearchBtn.style.display = 'none';
+    clearChatHighlights();
 
+    const chats = JSON.parse(localStorage.getItem("chats") || "{}");
+    const newChatData = chats[chatId];
+    if (newChatData && newChatData.messages) {
+      localStorage.setItem("chatHistory", JSON.stringify(newChatData.messages));
+      newChatData.messages.forEach(msg => {
+        const messageTimestamp = msg.timestamp || msg.time;
+        if (msg.role && msg.content && messageTimestamp) {
+          appendMessage(msg.role, msg.content, messageTimestamp, currentActiveSettings); // Pass currentActiveSettings
+        }
+      });
+    }
   } catch (error) {
     console.error('Error switching chat:', error);
+    chat.innerHTML = '<p style="text-align:center; color: #888;">Error loading chat.</p>';
   } finally {
     if (showIndicator) {
       hideLoadingIndicator();
@@ -178,35 +172,42 @@ async function switchToChat(chatId, showIndicator = true) {
   }
 }
 
-// Function to save current chat state
+// Function to save chat state
 function saveChatState(chatId) {
   const chats = JSON.parse(localStorage.getItem("chats") || "{}");
+  const chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+  
   if (chats[chatId]) {
-    chats[chatId].messages = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+    chats[chatId].messages = chatHistory;
     localStorage.setItem("chats", JSON.stringify(chats));
   }
 }
 
 // Function to load chat state
 async function loadChatState(chatId) {
-  // Removed show/hide loading indicator from here as switchToChat handles it
   const chats = JSON.parse(localStorage.getItem("chats") || "{}");
   const chatData = chats[chatId];
   
-  // chat.innerHTML = ""; // Cleared in switchToChat
-  
   if (chatData) {
     localStorage.setItem("chatHistory", JSON.stringify(chatData.messages || []));
-    if (chatData.messages) {
-        chatData.messages.forEach(msg => {
-            appendMessage(msg.role, msg.text, msg.time);
-        });
+    chat.innerHTML = ''; 
+    
+    if (chatData.messages && Array.isArray(chatData.messages)) {
+      chatData.messages.forEach(msg => {
+        const messageTimestamp = msg.timestamp || msg.time;
+        if (msg.role && msg.content && messageTimestamp) {
+          // If appendMessage were called here directly, it would need settings.
+          // However, loadChatState is typically followed by switchToChat which handles rendering with settings.
+          // For safety, if direct rendering was intended here, settings would be needed.
+          // Current flow: loadChatList -> switchToChat -> appendMessage (which now takes settings)
+        }
+      });
     }
+    
     input.value = "";
     input.style.height = 'auto';
     input.focus();
   } else {
-    // Handle case where chatData might not exist for some reason
     chat.innerHTML = '<p style="text-align:center; color: #888;">Could not load chat.</p>';
   }
   scrollToBottom();
@@ -217,7 +218,6 @@ function loadChatList() {
   const chats = JSON.parse(localStorage.getItem("chats") || "{}");
   chatList.innerHTML = "";
 
-  // Sort chats by creation date (newest first)
   const sortedChats = Object.values(chats).sort((a, b) => 
     new Date(b.createdAt) - new Date(a.createdAt)
   );
@@ -226,7 +226,6 @@ function loadChatList() {
     addChatToList(chatData);
   });
 
-  // Select the most recent chat or create a new one
   if (sortedChats.length > 0) {
     switchToChat(sortedChats[0].id);
   } else {
@@ -236,12 +235,9 @@ function loadChatList() {
 
 // Context menu functions
 function setupContextMenu() {
-  // Hide context menu on click outside
   document.addEventListener("click", () => {
     contextMenu.style.display = "none";
   });
-
-  // Prevent default context menu on chat items
   chatList.addEventListener("contextmenu", (e) => {
     e.preventDefault();
   });
@@ -250,13 +246,9 @@ function setupContextMenu() {
 function showContextMenu(e, chatId) {
   e.preventDefault();
   selectedChatItemForContextMenu = chatId;
-
-  // Position the menu
   contextMenu.style.display = "block";
   contextMenu.style.left = `${e.pageX}px`;
   contextMenu.style.top = `${e.pageY}px`;
-
-  // Adjust menu position if it would go off screen
   const rect = contextMenu.getBoundingClientRect();
   if (rect.right > window.innerWidth) {
     contextMenu.style.left = `${e.pageX - rect.width}px`;
@@ -268,21 +260,16 @@ function showContextMenu(e, chatId) {
 
 function renameChat() {
   if (!selectedChatItemForContextMenu) return;
-
   const chats = JSON.parse(localStorage.getItem("chats") || "{}");
   const chat = chats[selectedChatItemForContextMenu];
-  
   if (chat) {
     const newTitle = prompt("Enter new chat name:", chat.title);
     if (newTitle && newTitle.trim()) {
       chat.title = newTitle.trim();
       localStorage.setItem("chats", JSON.stringify(chats));
-      
-      // Update chat item in the list
       const chatItem = document.querySelector(`[data-chat-id="${selectedChatItemForContextMenu}"]`);
       if (chatItem) {
         chatItem.querySelector('.chat-title').textContent = newTitle.trim();
-        // Re-apply filter after renaming
         const currentFilter = sidebarSearchInput.value.toLowerCase().trim();
         const title = (chat.title || '').toLowerCase();
         if (currentFilter && !title.includes(currentFilter)) {
@@ -293,32 +280,22 @@ function renameChat() {
       }
     }
   }
-
   contextMenu.style.display = "none";
 }
 
-// Modify deleteChat to handle async switchToChat
 async function deleteChat() {
   if (!selectedChatItemForContextMenu) return;
-
   const chats = JSON.parse(localStorage.getItem("chats") || "{}");
   const chatToDelete = chats[selectedChatItemForContextMenu];
-
   if (!chatToDelete) return;
-
   if (!confirm(`Are you sure you want to delete the chat "${chatToDelete.title}"? This action cannot be undone.`)) {
     contextMenu.style.display = "none";
     return;
   }
-
   delete chats[selectedChatItemForContextMenu];
   localStorage.setItem("chats", JSON.stringify(chats));
-
   const chatItem = document.querySelector(`[data-chat-id="${selectedChatItemForContextMenu}"]`);
-  if (chatItem) {
-    chatItem.remove();
-  }
-
+  if (chatItem) chatItem.remove();
   if (selectedChatItemForContextMenu === currentChatId) {
     const remainingChats = Object.keys(chats);
     if (remainingChats.length > 0) {
@@ -353,7 +330,6 @@ function setupTextarea() {
     input.style.height = 'auto';
     input.style.height = (input.scrollHeight) + 'px';
   }
-
   input.addEventListener('input', adjustHeight);
   
   // Handle Enter key for sending message
@@ -387,14 +363,13 @@ function markdownToHtml(text) {
 }
 
 // Function to append a message to the chat
-function appendMessage(role, text, time) {
+function appendMessage(role, text, timestamp, settings) {
   const div = document.createElement("div");
   div.classList.add("chat-message", role);
 
   let messageHtml = markdownToHtml(text);
-  if (time) {
-    const timestamp = new Date().toISOString();
-    messageHtml += `<div class="time" data-timestamp="${timestamp}">${formatTimestamp(timestamp)}</div>`;
+  if (timestamp) {
+    messageHtml += `<div class="time" data-timestamp="${timestamp}">${formatTimestamp(timestamp, settings)}</div>`;
   }
 
   div.innerHTML = messageHtml;
@@ -429,124 +404,166 @@ function appendMessage(role, text, time) {
 }
 
 // Function to save message to localStorage
-function saveToHistory(role, text, time) {
+function saveToHistory(role, text, timestamp) {
   const history = JSON.parse(localStorage.getItem("chatHistory") || "[]");
-  history.push({ role, text, time });
+  history.push({
+    role: role,
+    content: text,
+    timestamp: timestamp
+  });
   localStorage.setItem("chatHistory", JSON.stringify(history));
+}
+
+// NEW FUNCTION: applyMaxMessagesLimit
+function applyMaxMessagesLimit(settings) {
+  try {
+    const maxMsgs = parseInt(settings.maxMessages);
+    if (isNaN(maxMsgs) || maxMsgs <= 0) {
+        console.warn('Max messages limit is invalid or zero, skipping pruning:', settings.maxMessages);
+        return; 
+    }
+    const messages = document.querySelectorAll('.chat-message');
+    if (messages.length > maxMsgs) {
+      const toRemove = messages.length - maxMsgs;
+      for (let i = 0; i < toRemove; i++) {
+        if (messages[i]) { 
+            messages[i].remove();
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error applying max messages limit:', error);
+  }
+}
+
+// Function to add a message to chat and save to history
+function addMessageToChat(role, text) {
+  const timestamp = new Date().toISOString();
+  const messageElement = appendMessage(role, text, timestamp, currentActiveSettings);
+  saveToHistory(role, text, timestamp);
+  
+  applyMaxMessagesLimit(currentActiveSettings);
+
+  return messageElement;
 }
 
 // Function to send a message
 async function sendMessage() {
-  const msg = input.value.trim();
-  if (!msg || input.disabled) return;
-
-  // Disable input and button during sending
-  input.disabled = true;
+  const messageInput = document.getElementById('message');
+  const sendBtn = document.getElementById('sendBtn');
+  const message = messageInput.value.trim();
+  
+  if (message === '') return;
+  
+  // Disable input and button while sending
+  messageInput.disabled = true;
   sendBtn.disabled = true;
-  input.style.opacity = "0.5";
-
-  const now = new Date();
-  const time = now.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
-  });
-
-  // Append user message (user messages are not processed for markdown highlighting)
-  const userDiv = document.createElement("div");
-  userDiv.classList.add("chat-message", "user");
-  let userMessageHtml = escapeHtml(msg); // User messages should be escaped for safety
-  if (time) {
-    userMessageHtml += `<div class="time">${time}</div>`;
-  }
-  userDiv.innerHTML = userMessageHtml;
-  chat.appendChild(userDiv);
-  scrollToBottom();
   
-  saveToHistory("user", msg, time); // Save the raw user message
+  messageInput.value = '';
+  messageInput.style.height = 'auto'; // Reset height after sending
   
-  // Clear input and reset height
-  input.value = "";
-  input.style.height = 'auto';
+  // User message added using addMessageToChat which now uses currentActiveSettings
+  addMessageToChat('user', message);
 
-  // Show typing indicator
-  const typingMsg = appendMessage("bot", `<span class="typing-dots">Thinking</span>`);
-
-  // Prepare the request
-  currentController = new AbortController();
-  const history = JSON.parse(localStorage.getItem("chatHistory") || "[]");
-  const formattedHistory = history.map(entry => ({
-    role: entry.role === "user" ? "user" : "assistant",
-    content: entry.text // Send raw text to backend
-  }));
-
+  // MODIFIED: Use currentActiveSettings for translations
+  const thinkingMessage = translations[currentActiveSettings.language || 'tr'].thinking;
+  // MODIFIED: Pass currentActiveSettings to appendMessage for the thinkingDiv
+  const thinkingDiv = appendMessage('bot', `${thinkingMessage}<span class="typing-dots"></span>`, null, currentActiveSettings);
+  
   try {
-    const res = await fetch("/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages: formattedHistory }),
-      signal: currentController.signal
+    const chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+    
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // MODIFIED: Pass currentActiveSettings.language to API
+      body: JSON.stringify({
+        messages: chatHistory,
+        message: message,
+        language: currentActiveSettings.language || 'tr'
+      })
     });
 
-    if (!res.ok) {
-      let errorDetails = `HTTP error! Status: ${res.status}`;
-      try {
-        const errorData = await res.json();
-        errorDetails = errorData.error || errorDetails;
-      } catch (parseError) {}
-      throw new Error(errorDetails);
+    if (thinkingDiv && thinkingDiv.parentNode) {
+      thinkingDiv.parentNode.removeChild(thinkingDiv);
     }
 
-    const data = await res.json();
-    if (typeof data.response === 'undefined') {
-      throw new Error("Invalid response format from server.");
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    // Get response timestamp
-    const responseTime = new Date().toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
-
-    // Sanitize the received response BEFORE markdown processing
-    const cleanResponse = DOMPurify.sanitize(data.response || '');
+    const data = await response.json();
     
-    // Format with markdownToHtml and display the response
-    const finalHtml = markdownToHtml(cleanResponse);
-    typingMsg.innerHTML = `${finalHtml}<div class="time">${responseTime}</div>`;
-    
-    // Apply syntax highlighting to the updated message
-    typingMsg.querySelectorAll('pre code').forEach((block) => {
-        hljs.highlightElement(block);
-    });
-    
-    // Save bot message (raw response, before markdownToHtml)
-    saveToHistory("bot", cleanResponse, responseTime);
-    
-    // Scroll to the latest message
-    scrollToBottom();
-
-  } catch (error) {
-    if (error.name === "AbortError") {
-      typingMsg.remove();
+    if (data.error) {
+      // MODIFIED: Use currentActiveSettings for error translation
+      const errorPrefix = translations[currentActiveSettings.language].error;
+      const errorMessage = `${errorPrefix}${data.error}`;
+      const errorDiv = addMessageToChat('error', errorMessage); // addMessageToChat handles settings
+      errorDiv.classList.add('error-message');
+      const chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+      chatHistory.pop(); // Remove user message that led to error
+      localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
+      showNotification(errorMessage, 'error');
     } else {
-      const errorTime = new Date().toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-      console.error("Error:", error);
-      // Error messages are not processed for markdown highlighting
-      typingMsg.innerHTML = `<i>An error occurred: ${escapeHtml(error.message || 'Please try again.')}</i><div class="time">${errorTime}</div>`;
+      addMessageToChat('bot', data.response); // addMessageToChat handles settings
+      const chatContainer = document.getElementById('chat');
+      const wasAtBottom = chatContainer.scrollHeight - chatContainer.scrollTop === chatContainer.clientHeight;
+      if (wasAtBottom) scrollToBottom(); else showScrollButton();
     }
+  } catch (error) {
+    if (thinkingDiv && thinkingDiv.parentNode) thinkingDiv.parentNode.removeChild(thinkingDiv);
+    console.error('Error:', error);
+    // MODIFIED: Use currentActiveSettings for error translation
+    const errorPrefix = translations[currentActiveSettings.language].error;
+    const errorMessage = `${errorPrefix}${error.message}`;
+    const errorDiv = addMessageToChat('error', errorMessage); // addMessageToChat handles settings
+    errorDiv.classList.add('error-message');
+    showNotification(errorMessage, 'error');
+    const chatHistory = JSON.parse(localStorage.getItem("chatHistory") || "[]");
+    chatHistory.pop();
+    localStorage.setItem("chatHistory", JSON.stringify(chatHistory));
   } finally {
-    // Re-enable input and button
-    input.disabled = false;
+    messageInput.disabled = false;
     sendBtn.disabled = false;
-    input.style.opacity = "1";
-    input.focus();
-    currentController = null;
+    messageInput.focus();
+  }
+}
+
+// Function to show notification
+function showNotification(message, type = 'info') {
+  const notification = document.createElement('div');
+  notification.className = `notification ${type}`;
+  notification.textContent = message;
+  
+  document.body.appendChild(notification);
+  
+  // Fade in
+  setTimeout(() => {
+    notification.classList.add('show');
+  }, 10);
+  
+  // Remove after 5 seconds
+  setTimeout(() => {
+    notification.classList.remove('show');
+    setTimeout(() => {
+      notification.remove();
+    }, 300);
+  }, 5000);
+}
+
+// Function to show scroll to bottom button
+function showScrollButton() {
+  let scrollButton = document.getElementById('scrollToBottom');
+  if (!scrollButton) {
+    scrollButton = document.createElement('button');
+    scrollButton.id = 'scrollToBottom';
+    scrollButton.className = 'scroll-button';
+    scrollButton.innerHTML = '<i class="fas fa-arrow-down"></i>';
+    scrollButton.onclick = () => {
+      scrollToBottom();
+      scrollButton.remove();
+    };
+    document.body.appendChild(scrollButton);
   }
 }
 
@@ -588,13 +605,6 @@ function setupEnhancedSearch() {
       clearChatHighlights();
       this.style.display = 'none';
       chatSearchInput.focus();
-      // Optional: To close search bar on clear, uncomment below
-      // searchContainer.classList.remove('active');
-      // setTimeout(() => { 
-      //   if (!searchContainer.classList.contains('active')) {
-      //     searchContainer.style.display = 'none'; 
-      //   }
-      // }, 200);
     });
 
     document.addEventListener('click', function(event) {
@@ -615,49 +625,36 @@ function setupEnhancedSearch() {
   }
 }
 
-// Replace previous searchInChat and clearChatHighlights if they were different
-// The versions from previous correct state:
 function searchInChat(searchText) {
     const messages = document.querySelectorAll('.chat-message');
     let firstMatchFound = false;
     messages.forEach(message => {
-        // To search only message text, excluding timestamp
         const messageContent = message.cloneNode(true);
         const timeElement = messageContent.querySelector('.time');
-        if (timeElement) {
-            messageContent.removeChild(timeElement);
-        }
+        if (timeElement) messageContent.removeChild(timeElement);
         const text = messageContent.textContent.toLowerCase();
         
         if (text.includes(searchText)) {
             message.classList.add('highlight');
             message.style.display = 'flex';
             if (!firstMatchFound) {
-                // Optional: scroll to first match. Could be jittery.
-                // message.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 firstMatchFound = true;
             }
         } else {
             message.classList.remove('highlight');
-            message.style.display = 'none'; // Hide non-matching messages during search
+            message.style.display = 'none'; 
         }
     });
-    if (!firstMatchFound && messages.length > 0) {
-        // If no matches, perhaps show a message or keep all hidden if that's desired.
-        // For now, all non-matches are hidden.
-    }
-    if (searchText === '' && messages.length > 0){
-         scrollToBottom(); // Scroll to bottom if search is cleared
-    }
+    if (searchText === '' && messages.length > 0) scrollToBottom();
 }
 
 function clearChatHighlights() {
     const messages = document.querySelectorAll('.chat-message');
     messages.forEach(message => {
         message.classList.remove('highlight');
-        message.style.display = 'flex'; // Display all messages
+        message.style.display = 'flex'; 
     });
-    scrollToBottom(); // Scroll to bottom when search is cleared
+    scrollToBottom(); 
 }
 
 // Settings Management
@@ -991,23 +988,22 @@ const translations = {
 // Load settings from localStorage or use defaults
 function loadSettings() {
   const savedSettings = JSON.parse(localStorage.getItem('chatSettings')) || {};
-  return { ...defaultSettings, ...savedSettings };
+  const settings = { ...defaultSettings, ...savedSettings };
+  console.log('Loading settings (from localStorage):', settings); // Clarified log
+  return settings;
 }
 
 // Save settings to localStorage
 function saveSettings(settings) {
+  console.log('Saving settings (to localStorage):', settings); // Clarified log
   localStorage.setItem('chatSettings', JSON.stringify(settings));
 }
 
 // Apply translations based on current language
-function applyTranslations() {
-  const settings = loadSettings();
+function applyTranslations(settings) {
   const currentTranslations = translations[settings.language];
 
-  // Add RTL support for Arabic
   document.body.dir = settings.language === 'ar' ? 'rtl' : 'ltr';
-  
-  // Add language-specific font families
   const fontFamilies = {
     de: '"Segoe UI", system-ui, -apple-system, sans-serif',
     zh: '"Microsoft YaHei", "微软雅黑", sans-serif',
@@ -1015,182 +1011,129 @@ function applyTranslations() {
     ar: '"Noto Sans Arabic", sans-serif',
     default: '"Segoe UI", system-ui, -apple-system, sans-serif'
   };
-  
   document.body.style.fontFamily = fontFamilies[settings.language] || fontFamilies.default;
-
-  // Set language attribute for proper font rendering
   document.documentElement.lang = settings.language;
 
-  // Update UI elements with translations
-  document.querySelector('.new-chat-btn').innerHTML = 
-    `<i class="fas fa-plus"></i> ${currentTranslations.newChat}`;
-  
-  document.querySelector('#settingsBtn').innerHTML = 
-    `<i class="fas fa-cog"></i> ${currentTranslations.settings}`;
-  
+  document.querySelector('.new-chat-btn').innerHTML = `<i class="fas fa-plus"></i> ${currentTranslations.newChat}`;
+  document.querySelector('#settingsBtn').innerHTML = `<i class="fas fa-cog"></i> ${currentTranslations.settings}`;
   document.querySelector('#message').placeholder = currentTranslations.typeMessage;
-  document.querySelector('#chatSearchInput').placeholder = currentTranslations.search;
+  if(chatSearchInput) chatSearchInput.placeholder = currentTranslations.search; // Added null check for chatSearchInput
   
-  // Update context menu items
-  document.querySelector('.context-menu-item:nth-child(1)').innerHTML = 
-    `<i class="fas fa-edit"></i> ${currentTranslations.rename}`;
-  document.querySelector('.context-menu-item:nth-child(2)').innerHTML = 
-    `<i class="fas fa-trash"></i> ${currentTranslations.delete}`;
+  const renameMenuItem = document.querySelector('.context-menu-item:nth-child(1)');
+  if (renameMenuItem) renameMenuItem.innerHTML = `<i class="fas fa-edit"></i> ${currentTranslations.rename}`;
+  const deleteMenuItem = document.querySelector('.context-menu-item:nth-child(2)');
+  if (deleteMenuItem) deleteMenuItem.innerHTML = `<i class="fas fa-trash"></i> ${currentTranslations.delete}`;
 
-  // Update all elements with data-translate attribute
   document.querySelectorAll('[data-translate]').forEach(element => {
     const translateKey = element.getAttribute('data-translate');
     if (translateKey && currentTranslations[translateKey]) {
       if (element.tagName.toLowerCase() === 'option') {
         element.text = currentTranslations[translateKey];
-      } else if (element.tagName.toLowerCase() === 'input' || 
-                 element.tagName.toLowerCase() === 'textarea') {
+      } else if (element.tagName.toLowerCase() === 'input' || element.tagName.toLowerCase() === 'textarea') {
         element.placeholder = currentTranslations[translateKey];
       } else {
         element.textContent = currentTranslations[translateKey];
       }
     }
   });
-
-  // Update clear button text
-  document.querySelector('#clearHistory').textContent = currentTranslations.clearAllChats;
+  const clearHistoryButton = document.querySelector('#clearHistory');
+  if (clearHistoryButton) clearHistoryButton.textContent = currentTranslations.clearAllChats;
 }
 
 // Apply settings to the UI
 function applySettings(settings) {
-  // Apply font size to chat messages and input
-  document.body.classList.remove('font-size-small', 'font-size-medium', 'font-size-large');
-  document.body.classList.add(`font-size-${settings.fontSize}`);
+  console.log('Applying settings from memory:', settings); // Clarified log
   
-  // Also apply font size to input area
-  const messageInput = document.getElementById('message');
-  if (messageInput) {
-    messageInput.style.fontSize = settings.fontSize === 'small' ? '0.9rem' : 
-                                 settings.fontSize === 'large' ? '1.1rem' : '1rem';
-  }
-
-  // Apply message spacing
-  const chatBox = document.getElementById('chat');
-  if (chatBox) {
-    chatBox.classList.remove(
-      'message-spacing-compact',
-      'message-spacing-normal',
-      'message-spacing-relaxed'
-    );
-    chatBox.classList.add(`message-spacing-${settings.messageSpacing}`);
-  }
-
-  // Update select elements to reflect current settings
-  ['fontSize', 'messageSpacing', 'timestampFormat', 'maxMessages', 'language'].forEach(setting => {
-    const element = document.getElementById(setting);
-    if (element) {
-      element.value = settings[setting];
+  try {
+    document.body.classList.remove('font-size-tiny', 'font-size-extraSmall', 'font-size-small', 'font-size-medium', 'font-size-large', 'font-size-extraLarge', 'font-size-huge');
+    document.body.classList.add(`font-size-${settings.fontSize}`);
+    const messageInput = document.getElementById('message');
+    if (messageInput) {
+      const fontSizes = { tiny: '0.75rem', extraSmall: '0.85rem', small: '0.95rem', medium: '1rem', large: '1.15rem', extraLarge: '1.3rem', huge: '1.5rem' };
+      messageInput.style.fontSize = fontSizes[settings.fontSize] || '1rem';
     }
-  });
+  } catch (error) { console.error('Error applying font size:', error); }
+  
+  try {
+    const chatBox = document.querySelector('.chat-box');
+    if (chatBox) {
+      chatBox.classList.remove('message-spacing-extraCompact', 'message-spacing-compact', 'message-spacing-normal', 'message-spacing-relaxed', 'message-spacing-spacious', 'message-spacing-extraSpacious');
+      chatBox.classList.add(`message-spacing-${settings.messageSpacing}`);
+      const spacingValues = { extraCompact: '0.25rem', compact: '0.5rem', normal: '1rem', relaxed: '1.5rem', spacious: '2rem', extraSpacious: '2.5rem' };
+      chatBox.style.setProperty('--message-spacing', spacingValues[settings.messageSpacing] || '1rem');
+    } else { console.warn('Chat box element not found'); }
+  } catch (error) { console.error('Error applying message spacing:', error); }
 
-  // Apply translations
-  applyTranslations();
+  try {
+    ['fontSize', 'messageSpacing', 'timestampFormat', 'maxMessages', 'language'].forEach(settingId => {
+      const element = document.getElementById(settingId);
+      if (element) element.value = settings[settingId];
+    });
+  } catch (error) { console.error('Error updating select elements:', error); }
 
-  // Update all existing timestamps
-  updateAllTimestamps();
+  try { applyTranslations(settings); } 
+  catch (error) { console.error('Error applying translations:', error); }
 
-  // Apply max messages limit
-  const maxMsgs = parseInt(settings.maxMessages);
-  const messages = document.querySelectorAll('.chat-message');
-  if (messages.length > maxMsgs) {
-    const toRemove = messages.length - maxMsgs;
-    for (let i = 0; i < toRemove; i++) {
-      messages[i].remove();
-    }
-  }
+  try { updateAllTimestamps(settings); } 
+  catch (error) { console.error('Error updating timestamps:', error); }
+
+  applyMaxMessagesLimit(settings);
+  
+  console.log('Settings application completed');
 }
 
 // Format timestamp based on settings
-function formatTimestamp(timestamp) {
-  const settings = loadSettings();
+function formatTimestamp(timestamp, settings) {
   const date = new Date(timestamp);
   const options = {
     hour: settings.timestampFormat === '12hour' ? 'numeric' : '2-digit',
     minute: '2-digit',
     hour12: settings.timestampFormat === '12hour'
   };
-
-  // Use appropriate locale based on language
-  const locales = {
-    en: 'en-US',
-    de: 'de-DE',
-    zh: 'zh-CN',
-    hi: 'hi-IN',
-    es: 'es-ES',
-    ar: 'ar-SA',
-    tr: 'tr-TR',
-    fr: 'fr-FR',
-    ru: 'ru-RU'
-  };
-
+  const locales = { en: 'en-US', de: 'de-DE', zh: 'zh-CN', hi: 'hi-IN', es: 'es-ES', ar: 'ar-SA', tr: 'tr-TR', fr: 'fr-FR', ru: 'ru-RU' };
   return new Intl.DateTimeFormat(locales[settings.language] || 'en-US', options).format(date);
 }
 
-// Update all existing timestamps in the chat
-function updateAllTimestamps() {
-  const timeElements = document.querySelectorAll('.chat-message .time');
-  timeElements.forEach(timeElement => {
-    const originalTime = timeElement.getAttribute('data-timestamp');
+// Update all timestamps in the chat
+function updateAllTimestamps(settings) {
+  const timestamps = document.querySelectorAll('.time');
+  timestamps.forEach(tsElement => {
+    const originalTime = tsElement.getAttribute('data-timestamp');
     if (originalTime) {
-      timeElement.textContent = formatTimestamp(originalTime);
+      tsElement.textContent = formatTimestamp(originalTime, settings);
     }
   });
 }
 
 function setupSettingsModal() {
-  if (settingsBtn) {
-    settingsBtn.addEventListener('click', openSettingsModal);
-  }
-  if (closeSettingsModalBtn) {
-    closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
-  }
-  window.addEventListener('click', (event) => {
-    if (event.target === settingsModal) {
-      closeSettingsModal();
+  if (settingsBtn) settingsBtn.addEventListener('click', openSettingsModal);
+  if (closeSettingsModalBtn) closeSettingsModalBtn.addEventListener('click', closeSettingsModal);
+
+  const settingSelectIds = ['fontSize', 'messageSpacing', 'timestampFormat', 'maxMessages', 'language'];
+  settingSelectIds.forEach(settingId => {
+    const selectElement = document.getElementById(settingId);
+    if (selectElement) {
+      selectElement.addEventListener('change', (event) => {
+        currentActiveSettings[settingId] = event.target.value;
+        saveSettings(currentActiveSettings);
+        applySettings(currentActiveSettings);
+        
+        if (settingId === 'language') {
+            applyTranslations(currentActiveSettings);
+            settingSelectIds.forEach(sId => {
+                const el = document.getElementById(sId);
+                if (el) el.value = currentActiveSettings[sId];
+            });
+        }
+      });
     }
   });
-
-  // Add event listeners for settings changes
-  const settingSelects = document.querySelectorAll('.setting-select');
-  settingSelects.forEach(select => {
-    select.addEventListener('change', (e) => {
-      const newSettings = {
-        ...loadSettings(),
-        [e.target.id]: e.target.value
-      };
-      saveSettings(newSettings);
-      applySettings(newSettings);
-    });
-  });
-
-  // Clear history button handler
-  const clearHistoryBtn = document.getElementById('clearHistory');
-  if (clearHistoryBtn) {
-    clearHistoryBtn.addEventListener('click', () => {
-      const settings = loadSettings();
-      const confirmMessage = translations[settings.language].clearConfirm;
-      if (confirm(confirmMessage)) {
-        localStorage.removeItem('chats');
-        window.location.reload();
-      }
-    });
-  }
-
-  // Initialize settings
-  const currentSettings = loadSettings();
-  applySettings(currentSettings);
 }
 
 function openSettingsModal() {
   if (settingsModal) {
     settingsModal.style.display = "block";
-    // Re-apply settings when modal opens to ensure everything is in sync
-    applySettings(loadSettings());
+    applySettings(currentActiveSettings);
   }
 }
 
@@ -1200,21 +1143,23 @@ function closeSettingsModal() {
   }
 }
 
-// Language handling
-const languageSelect = document.getElementById('language');
-if (languageSelect) {
-  languageSelect.addEventListener('change', (e) => {
-    const newSettings = {
-      ...loadSettings(),
-      language: e.target.value
-    };
-    saveSettings(newSettings);
-    applySettings(newSettings);
-  });
-}
-
 // Initialize settings on page load
 document.addEventListener('DOMContentLoaded', () => {
-  const currentSettings = loadSettings();
-  applySettings(currentSettings);
+  currentActiveSettings = loadSettings();
+  applySettings(currentActiveSettings);
+  
+  const clearHistoryBtn = document.getElementById('clearHistory');
+  if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', () => {
+      const confirmMessage = translations[currentActiveSettings.language || 'en'].clearConfirm;
+      if (confirm(confirmMessage)) {
+        localStorage.removeItem('chats');
+        localStorage.removeItem('chatHistory');
+        chatList.innerHTML = '';
+        chat.innerHTML = '';
+        startNewChat();
+        showNotification('All chats have been cleared.', 'info');
+      }
+    });
+  }
 });

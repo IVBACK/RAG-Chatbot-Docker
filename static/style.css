@@ -12,6 +12,13 @@
     --message-user-text: #ffffff;
     --message-bot-text: #1a1a1a;
     --selected-chat-bg: #2a2b32;
+    
+    /* Default values for font sizes and spacing */
+    --base-font-size: 1rem;
+    --message-font-size: 1rem;
+    --heading-font-size: 1.2rem;
+    --message-spacing: 1rem;
+    --section-spacing: 1.5rem;
 }
 
 body.dark-mode {
@@ -161,6 +168,8 @@ body {
     display: flex;
     flex-direction: column;
     background-color: var(--chat-bg);
+    height: 100vh; /* Ensure full height */
+    overflow: hidden; /* Prevent outer scroll */
 }
 
 .chat-container {
@@ -170,7 +179,8 @@ body {
     max-width: 900px;
     margin: 0 auto;
     width: 100%;
-    padding: 1rem;
+    height: 100%; /* Take full height */
+    position: relative; /* For absolute positioning of input area */
 }
 
 .chat-box {
@@ -180,6 +190,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    margin-bottom: 80px; /* Add space for input area */
 }
 
 .chat-message {
@@ -212,9 +223,14 @@ body {
 }
 
 .chat-input-area {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
     padding: 1rem;
     background-color: var(--chat-bg);
     border-top: 1px solid var(--border-color);
+    z-index: 10; /* Ensure it stays above chat content */
 }
 
 .input-wrapper {
@@ -231,7 +247,7 @@ textarea#message {
     background: none;
     border: none;
     color: var(--text-color);
-    font-size: 1rem;
+    font-size: var(--base-font-size);
     resize: none;
     outline: none;
     max-height: 200px;
@@ -465,7 +481,7 @@ textarea#message::placeholder {
   border-radius: 0.3rem;
   background-color: var(--input-bg);
   color: var(--text-color);
-  font-size: 0.9rem;
+  font-size: var(--base-font-size);
 }
 
 .new-chat-btn {
@@ -556,7 +572,7 @@ textarea#message::placeholder {
   background: none;
   border: none;
   color: var(--text-color);
-  font-size: 0.9rem;
+  font-size: var(--base-font-size);
   padding: 0.25rem;
   outline: none;
 }
@@ -613,7 +629,7 @@ textarea#message::placeholder {
   border-radius: 0.3rem;
   background-color: var(--input-bg);
   color: var(--text-color);
-  font-size: 0.9rem;
+  font-size: var(--base-font-size);
   cursor: pointer;
 }
 
@@ -629,7 +645,7 @@ textarea#message::placeholder {
   padding: 0.5rem 1rem;
   border-radius: 0.3rem;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: var(--base-font-size);
   width: 100%;
   transition: background-color 0.2s;
 }
@@ -778,4 +794,82 @@ h1, h2, h3 {
 [dir="rtl"] textarea,
 [dir="rtl"] input[type="text"] {
   text-align: right;
+}
+
+/* Notification Styles */
+.notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 15px 25px;
+  border-radius: 8px;
+  background-color: var(--accent-color);
+  color: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: all 0.3s ease;
+}
+
+.notification.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.notification.error {
+  background-color: #dc3545;
+}
+
+/* Error Message Styles */
+.error-message {
+  border-left: 4px solid #dc3545 !important;
+  background-color: rgba(220, 53, 69, 0.1) !important;
+}
+
+/* Scroll to Bottom Button */
+.scroll-button {
+  position: fixed;
+  bottom: 90px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--accent-color);
+  color: white;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: all 0.2s ease;
+}
+
+.scroll-button:hover {
+  background-color: var(--hover-color);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Apply font sizes to specific elements */
+body {
+    font-size: var(--base-font-size);
+}
+
+.chat-message {
+    font-size: var(--message-font-size);
+}
+
+h1, h2, h3, .sidebar-header h1 {
+    font-size: var(--heading-font-size);
+}
+
+/* Ensure input and buttons use the base font size */
+textarea#message,
+button,
+select,
+input {
+    font-size: var(--base-font-size);
 }
